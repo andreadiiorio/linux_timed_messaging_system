@@ -1,6 +1,6 @@
 /*
- *TIMED MESSAGING SYSTEM
- *Andrea Di Iorio	277550
+ *  TIMED MESSAGING SYSTEM
+ *  Andrea Di Iorio	277550
  */
 #define EXPORT_SYMTAB
 #include <linux/kernel.h>
@@ -18,9 +18,35 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Andrea Di Iorio");
 #define DEVICE_NAME	"TIMED_MESSAGING_SYS"
+
+///Configuration
 #define NUM_MINOR	10	//max concurrent instances supported TODO
 #define AUDIT		if(1)
+///Mod params
+static int max_message_size, max_storage_size;
+module_param(max_message_size,int,0660);	//supported max msg size
+module_param(max_storage_size,int,0660);	//supported max cumulative msg size
+/// flex /sys export
+static struct kobject* kobj_mod_params;
+// var GET - PUT function definition macros
+#define SYSVAR_GET_NAME(var)	sys_get_##var
+#define SYSVAR_PUT_NAME(var)	sys_put_##var
+#define SYSVAR_GET(var)		\
+	static ssize_t SYSVAR_GET_NAME(struct kobject *kobj, struct kobj_attribute *attr, const char *buf){\
+        	return sprintf(buf, "%d\n", var);}
 
+#define SYSVAR_PUT(var)		\
+	static ssize_t SYSVAR_PUT_NAME(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count){\
+        sscanf(buf, "%du", &var);\
+        return count;}
+SYSVAR_GET(max_message_size)	SYSVAR_PUT(max_message_size)
+SYSVAR_GET(max_storage_size)	SYSVAR_PUT(max_storage_size)
+//
+static struct kobj_attribute max_msg_size_attr		= __ATTR(max_message_size, 0660,SYSVAR_GET_NAME(max_message_size),SYSVAR_PUT_NAME(max_message_size));
+static struct kobj_attribute max_storage_size_attr	= __ATTR(max_storage_size, 0660,SYSVAR_GET_NAME(max_storage_size),SYSVAR_PUT_NAME(max_storage_size));
+
+
+//fops prototypes
 static int 	_open(struct inode *, struct file *);
 static int 	_release(struct inode *, struct file *);
 static ssize_t	_write(struct file *, const char *, size_t, loff_t *);
@@ -44,106 +70,6 @@ static ssize_t _write(struct file *filp, const char *buff, size_t len, loff_t *o
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 static struct file_operations fops = {
 	.owner =		THIS_MODULE,
 	.open =			_open,
@@ -156,7 +82,7 @@ static struct file_operations fops = {
 };//struct define at https://elixir.bootlin.com/linux/latest/source/include/linux/fs.h#L1837
 
 
-int init_module(void) {
+int __init mod_start(void) {
 	///register the device driver
 	
 	Major = __register_chrdev(0,0,NUM_MINOR, DEVICE_NAME, fops);	//create and register a cdev with dyn alloc of major and NUM_MINOR minors
@@ -164,13 +90,20 @@ int init_module(void) {
 	  printk("%s: registering cdev failed\n",DEVICE_NAME);
 	  return Major;
 	}
-
 	printk(KERN_INFO "%s: registered cdev: Major=%d, numMinors=%d\n",DEVICE_NAME,Major,NUM_MINOR);
-	return 0;
+	//exporting module parameters to /sys/kern
+	int error =	sysfs_create_file(kobj_mod_params, &max_msg_size_attr.attr);	//actually creating another kernel object
+	error +=	sysfs_create_file(kobj_mod_params, &max_storage_size_attr.attr);
+        if (error)	printk("%s: failed to create the target kobj\n",NAME);
+	return error;
 }
 
-void cleanup_module(void)
+void __exit mod_end(void)
 {
 	__unregister_chrdev(0,0,NUM_MINOR, DEVICE_NAME);
 	printk(KERN_INFO "%s: device unregistered, it was assigned major number %d\n",DEVICE_NAME,Major);
 }
+
+MODULE_LICENSE("GPL"); 
+module_init(mod_start);
+module_exit(mod_end);
