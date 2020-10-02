@@ -14,19 +14,17 @@
 #include <linux/signal_types.h>
 #include <linux/syscalls.h>
 
-#include "include/utils.h"	//TODO CHECK
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Andrea Di Iorio");
+#include "include/timed_messaging_sys.h"
+#include "include/utils.h"	
 #define DEVICE_NAME	"TIMED_MESSAGING_SYS"
 
-///Configuration
-#define NUM_MINOR	10	//max concurrent instances supported TODO
-#define AUDIT		if(1)
 ///Mod params
-static int max_message_size, max_storage_size;
+unsigned int Major;
+unsigned long max_message_size, max_storage_size;
+module_param(Major,int,0444);	//supported max msg size
 module_param(max_message_size,int,0660);	//supported max msg size
 module_param(max_storage_size,int,0660);	//supported max cumulative msg size
-/// flex /sys export
+/// flex /sys export	//TODO MOVABLE=
 static struct kobject* kobj_mod_params;
 // var GET - PUT function definition macros
 #define SYSVAR_GET_NAME(var)	sys_get_##var
@@ -42,32 +40,10 @@ static struct kobject* kobj_mod_params;
 SYSVAR_GET(max_message_size)	SYSVAR_PUT(max_message_size)
 SYSVAR_GET(max_storage_size)	SYSVAR_PUT(max_storage_size)
 //
-static struct kobj_attribute max_msg_size_attr		= __ATTR(max_message_size, 0660,SYSVAR_GET_NAME(max_message_size),SYSVAR_PUT_NAME(max_message_size));
-static struct kobj_attribute max_storage_size_attr	= __ATTR(max_storage_size, 0660,SYSVAR_GET_NAME(max_storage_size),SYSVAR_PUT_NAME(max_storage_size));
-
-
-//fops prototypes
-static int 	_open(struct inode *, struct file *);
-static int 	_release(struct inode *, struct file *);
-static ssize_t	_write(struct file *, const char *, size_t, loff_t *);
-static ssize_t	_read (struct file *, char __user *, size_t, loff_t *);
-static long	_unlocked_ioctl (struct file *, unsigned int, unsigned long);
-static long	_compat_ioctl (struct file *, unsigned int, unsigned long);
-static int 	_flush (struct file *, fl_owner_t id);
-
-
-static int Major;
-
-
-static int _open(struct inode *inode, struct file *file) {
-	//TODO
-}
-static int _release(struct inode *inode, struct file *file) {
-	//TODO
-}
-static ssize_t _write(struct file *filp, const char *buff, size_t len, loff_t *off) {
-	//TODO
-}
+static struct kobj_attribute max_msg_size_attr		= __ATTR(max_message_size,
+       0660,SYSVAR_GET_NAME(max_message_size),SYSVAR_PUT_NAME(max_message_size));
+static struct kobj_attribute max_storage_size_attr	= __ATTR(max_storage_size,
+	   0660,SYSVAR_GET_NAME(max_storage_size),SYSVAR_PUT_NAME(max_storage_size));
 
 
 static struct file_operations fops = {
@@ -77,33 +53,44 @@ static struct file_operations fops = {
 	.write =		_write,
 	.read =			_read,
 	._unlocked_ioctl=	_unlocked_ioctl,
-	._compat_ioctl=		_compat_ioctl,
+	//._compat_ioctl=		_compat_ioctl,
 	.flush=			_flush,
-};//struct define at https://elixir.bootlin.com/linux/latest/source/include/linux/fs.h#L1837
+};
 
 
 int __init mod_start(void) {
 	///register the device driver
-	
-	Major = __register_chrdev(0,0,NUM_MINOR, DEVICE_NAME, fops);	//create and register a cdev with dyn alloc of major and NUM_MINOR minors
+	//create and register a cdev with dyn alloc of major and NUM_MINOR minors
+	Major = __register_chrdev(0,0,NUM_MINOR, DEVICE_NAME, fops);	
 	if (Major < 0) {
-	  printk("%s: registering cdev failed\n",DEVICE_NAME);
+	  printk(KERN_INFO "%s: registering cdev failed\n",DEVICE_NAME);
 	  return Major;
 	}
-	printk(KERN_INFO "%s: registered cdev: Major=%d, numMinors=%d\n",DEVICE_NAME,Major,NUM_MINOR);
-	//exporting module parameters to /sys/kern
-	int error =	sysfs_create_file(kobj_mod_params, &max_msg_size_attr.attr);	//actually creating another kernel object
+	printk(KERN_INFO "%s: registered cdev: Major=%d, numMinors=%d\n",
+		DEVICE_NAME,Major,NUM_MINOR);
+	///exporting module parameters to /sys/kern
+	//actually creating another kernel object
+	error =		sysfs_create_file(kobj_mod_params, &max_msg_size_attr.attr);	
 	error +=	sysfs_create_file(kobj_mod_params, &max_storage_size_attr.attr);
-        if (error)	printk("%s: failed to create the target kobj\n",NAME);
+    if (error){
+			printk(KERN_ERR "%s: failed to create the target kobj\n",NAME);
+			return error;
+	}
+	//init internal structures
+	error = init_ddriver_state();
+    if (error)	printk("%s: failed allocate internal structs\n",NAME);
 	return error;
 }
 
 void __exit mod_end(void)
 {
+	free_ddriver_state();
 	__unregister_chrdev(0,0,NUM_MINOR, DEVICE_NAME);
-	printk(KERN_INFO "%s: device unregistered, it was assigned major number %d\n",DEVICE_NAME,Major);
+	printk(KERN_INFO "%s: device with major number %d unregistered %s\n",
+		DEVICE_NAME,Major,error ? "dealloc of internal structures error":"");
 }
 
-MODULE_LICENSE("GPL"); 
 module_init(mod_start);
 module_exit(mod_end);
+MODULE_LICENSE("GPL"); 
+MODULE_AUTHOR("Andrea Di Iorio");
