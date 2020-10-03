@@ -6,9 +6,14 @@
  *
  */
 
-#include "../include/timed_messaging_sys.h"
 #include "../include/core.h"
+#include "../include/timed_messaging_sys.h"
 
+//internal function prototypes
+static int _add_msg(ddstate* minor, message* msg,char event);
+static void _notify_reader(ddstate* minor,char notify_all,char event);
+static void _cancel_pending_wr(session* sess);
+static void _delayed_write (struct work_struct *work);
 ddstate minors[NUM_MINOR];
 extern unsigned long max_message_size, max_storage_size;	//mod params
 /*
@@ -27,33 +32,35 @@ int init_ddriver_state(void){
 	}
 	return err;
 }
+
 /*
  * dealloc dev driver state for each supported minor
  * at module unmounting
  */
 void free_ddriver_state(void){
-	int i,err=0;
+	int i;
+	session* sess;
+	message* msg;
 	for (i=0;i<NUM_MINOR;i++){
 		ddstate* dMinor=minors + i;
 		//TODO not unmountable module if exist a session?
-		session* sess=list_first_entry_or_null(&dMinor->sessions);
-		if (sess) printk(KERN_ERR "%s: unmounting module with a session alive\n"
+		sess=list_first_entry_or_null(&dMinor->sessions,session,link);
+		if (sess) printk(KERN_ERR "%s: unmounting module with a session alive\n",
 					MODNAME);
 
 		//delete unreaded messages
-		message* msg;
-		list_for_each_entry(msg,&minor->avaible_messages,link){
+		list_for_each_entry(msg,&dMinor->avaible_messages,link){
 			list_del(&msg->link);
 			kfree(msg->data);
 			kfree(msg);
 		
 		}
 	}
-	return err;
-	
 }
+
 int _open(struct inode *inode, struct file *file) {
 	ddstate* minor=minors + get_minor(file);
+	unsigned int wq_flags=WQ_MEM_RECLAIM;
 	session* sess;
 	if (!(sess = kmalloc(sizeof(session),GFP_KERNEL)))	return -ENOMEM;
 
@@ -62,13 +69,12 @@ int _open(struct inode *inode, struct file *file) {
 	//non-predefined (events), bound workQueue, 
 	//default=256 exe contexts per cpu assigniable to work items
 	//	mem pressure -> >=1 exe context for sure
-	unsigned int wq_flags=WQ_MEM_RECLAIM;
 	#ifdef DELAYED_WRITER_HIGH_PRIO
 	wq_flags |= WQ_HIGHPRI;
 	#endif
 	if(!(sess->workq_writers = alloc_workqueue(WRITERS_WORKQ,wq_flags,0))){
 		kfree(sess);
-		printk(KERN_ERR "%s: writers workqueue alloc error\n");
+		printk(KERN_ERR "%s: writers workqueue alloc error\n",MODNAME);
 		return -ENOMEM;
 	}
 	sess->timeoutRd=sess->timeoutWr=0;	//dflt timeout
@@ -87,8 +93,8 @@ int _release(struct inode *inode, struct file *file) {
 	session* sess =(session*) file -> private_data;
 
 	//wait deleyed write to complete
-	flush_workqueue(&session -> workq_writers);
-	destroy_workqueue(&session->workq_writers);
+	flush_workqueue(sess-> workq_writers);
+	destroy_workqueue(sess->workq_writers);
 	//unlinks
 	mutex_lock(&minor -> mtx);
 	list_del(&sess->link);
@@ -125,7 +131,7 @@ ssize_t _write(struct file *file, const char *buff, size_t len, loff_t *off) {
 	message* 	msg;
 	char*		kbuff;
 	delayed_write* pending_wr=NULL; //NULL to distinguish in err dealloc 
-	int		ret;
+	int		ret,err;
 	
 	//get the user message
 	if (!(msg = kmalloc(sizeof(msg),GFP_KERNEL))){
@@ -134,12 +140,12 @@ ssize_t _write(struct file *file, const char *buff, size_t len, loff_t *off) {
 	}
 	//allocate a tmp buff to copy the user message with contiguos mem if
 	//possible, otherwise with non contiguos, using dflt numa node
-	if (!(kbuff = kvmalloc_node(len,GFP_KERNEL,NUMA_NO_NODE))){
+	if (!(kbuff = kvmalloc(len,GFP_KERNEL))){
 		printk(KERN_ERR "%s: kbuff alloc failed",MODNAME);
 		ret = -ENOMEM;
 		goto free_msg;
 	}
-	if (ret=copy_from_user(kbuff,buff,len)){
+	if ((ret=copy_from_user(kbuff,buff,len))){
 		printk(KERN_ERR "%s: copy_from_user left %d bytes",MODNAME,ret);
 		ret = -ENOMEM;
 		goto free_kbuff	;
@@ -152,7 +158,7 @@ ssize_t _write(struct file *file, const char *buff, size_t len, loff_t *off) {
 	if (sess ->timeoutWr){	
 		//deleay the write
 		if (!(pending_wr = kmalloc(sizeof(delayed_write),GFP_KERNEL))){
-			printk(KERN_ERR "%s: error alloc delayed_write");
+			printk(KERN_ERR "%s: error alloc delayed_write",MODNAME);
 			err=-ENOMEM;
 			goto free_kbuff;
 		}
@@ -163,21 +169,21 @@ ssize_t _write(struct file *file, const char *buff, size_t len, loff_t *off) {
 		INIT_LIST_HEAD(&pending_wr->link);
 		//serialize with flush
 #ifdef FLUSH_DEFER_WR_CONCURR_FAIL	//defered write fail if concurr with flush 
-		if(!mutex_trylock(sess->mtx)){
-			AUDIT printk(KERN_INFO "%s: deferred write while flushing the device,
+		if(!mutex_trylock(&sess->mtx)){
+			AUDIT printk(KERN_INFO "%s: deferred write while flushing the device,\
 				 aborting",MODNAME);	
 			goto free_pending_wr;
 		}
 		list_add_tail(&pending_wr->link,&sess->writers_delayed);
-		mutex_unlock(sess->mtx);
+		mutex_unlock(&sess->mtx);
 #else						      //defered write delayed if concurr with flush 
-		mutex_lock(sess->mtx);				
+		mutex_lock(&sess->mtx);				
 		list_add_tail(&pending_wr->link,&sess->writers_delayed);
-		mutex_unlock(sess->mtx);
+		mutex_unlock(&sess->mtx);
 #endif
 		//queue work item in the custom  WRITERS_WORKQ
 		INIT_DELAYED_WORK(&pending_wr->delayed_work,_delayed_write);
-		queue_delayed_work(sess->writers_delayed,pending_wr->delayed_work,
+		queue_delayed_work(sess->workq_writers,&pending_wr->delayed_work,
 			sess->timeoutWr); //after op.mode WR delay->queue WR work
 		return 0;	    //deferred write -> no bytes actually written
 	}
@@ -208,15 +214,15 @@ ssize_t _write(struct file *file, const char *buff, size_t len, loff_t *off) {
  */
 static int _add_msg(ddstate* minor, message* msg,char event){
 	INIT_LIST_HEAD(&msg->link);
-	mutex_lock(minor->mtx);
-	if ( _is_dev_file_full(msg->len) ){
+	mutex_lock(&minor->mtx);
+	if ( _is_dev_file_full(minor,msg->len) ){
 		return -ENOSPC;	
-		mutex_unlock(minor->mtx);
+		mutex_unlock(&minor->mtx);
 	}
-	list_add_tail(msg,&minor->avaible_messages);
+	list_add_tail(&msg->link,&minor->avaible_messages);
 	minor->cumul_msg_size+=msg->len;
 	if (event != NULLEVENT)		_notify_reader(minor,0,event);
-	mutex_unlock(minor->mtx);
+	mutex_unlock(&minor->mtx);
 	return msg->len;
 }
 /*
@@ -252,20 +258,21 @@ static void _notify_reader(ddstate* minor,char notify_all,char event){
  * posticipated write
  * @work:contained as: work_struct -> delayed_work -> delayed_write (this module)
  */
-void _delayed_write (struct work_struct *work){
+static void _delayed_write (struct work_struct *work){
 	int ret;
 	struct delayed_work *delayed_work;
 	message* trgt_msg;
 	delayed_write* pending_wr;
 	//delayed_work struct in kernel 5.8.12 at: linux/workqueue.h + 116
-	delayed_work = container_of(work_struct, struct delayed_work, work); 
+	delayed_work = container_of(work, struct delayed_work, work); 
 	pending_wr= container_of(delayed_work, delayed_write, delayed_work);
 	trgt_msg = pending_wr -> msg;
-	ret = _add_msg(&minor,trgt_msg,MSGREADY);
-	if (ret > 0)		return ret;	//successful write
-	
-	kfree(msg->data);
-	kfree(msg);
+	ret = _add_msg(pending_wr->minor,trgt_msg,MSGREADY);
+	if (ret > 0)		return ;	//successful write
+	//fail
+	AUDIT printk(KERN_ERR "%s: delayed write failed with err:%d\n",MODNAME,ret);
+	kfree(trgt_msg->data);
+	kfree(trgt_msg);
 	kfree(delayed_work);
 	return;
 }
@@ -285,7 +292,7 @@ void _delayed_write (struct work_struct *work){
  * otherwise, if the session op.mode allow to wait, go to sleep for the setted time
  * waiting for a new msg.
  */
-ssize_t _read(struct file *file, const char *buff, size_t len, loff_t *off) {
+ssize_t _read(struct file *file, char __user *buff, size_t len, loff_t *off) {
 	session*	sess=file -> private_data;
 	ddstate* 	minor=minors + get_minor(file);
 	message* 	msg;
@@ -295,18 +302,18 @@ ssize_t _read(struct file *file, const char *buff, size_t len, loff_t *off) {
 	mutex_lock(&minor->mtx);
 	msg=list_first_entry_or_null(&minor->avaible_messages,message,link);
 	if (msg)	goto msg_ready;
-
-	mutex_unlock(&minor>-mtx);
+	
+	mutex_unlock(&minor->mtx);
 	///NO MSG AVAIBLE -> check session op.mode allow to wait
 	max_wait_time=sess->timeoutRd;
-	AUDIT	printk(KERN_INFO "%s:NO avaible msg...
-		     op.mode allow to wait %lu jiffies\n",MODNAME,max_wait_time);
+	AUDIT	printk(KERN_INFO "%s:NO avaible msg...\
+		 op.mode allow to wait %lu jiffies\n",MODNAME,max_wait_time);
 	if (!max_wait_time)	return -ENOMSG; //no wait allowed -> return
-		
+	
 	//init pending read op.
 	if( !(pending_rd=kzalloc(sizeof(delayed_read),GFP_KERNEL))) {
-		printk(KERN_ERR "%s: failed to alloc the pending read",MODNAME);
-		return -ENOMEM;
+	printk(KERN_ERR "%s: failed to alloc the pending read",MODNAME);
+	return -ENOMEM;
 	}
 	INIT_LIST_HEAD(&pending_rd->link);
 	//enqueue the waiting rd op
@@ -315,71 +322,71 @@ ssize_t _read(struct file *file, const char *buff, size_t len, loff_t *off) {
 	mutex_unlock(&minor->mtx);
 	//until am I allowed to wait a new msg
 	while(max_wait_time>0){
-		//sleep until either: msgready,flush,signal,timeout	
-		//TODO DISALLOW SIGNALS?
-		ret=wait_event_interruptible_timeout(&minor->waitq_readers,
-				pending_rd->awake_cond,sess->timeoutRd);	
-		if(ret==0){					//timeout expired not event
-			AUDIT printk(KERN_INFO "%s:timeout waiting for msg",MODNAME);
-			ret=-ETIME;
-			goto unlink_pending_rd;
-		}
-		else if(ret==-ERESTARTSYS){	//signal
-			AUDIT printk(KERN_INFO "%s:sig interruption",MODNAME);
-			ret=-ENOMSG;
-			goto unlink_pending_rd;	//TODO POSSIBILE UNLINK GIA FATTO?
-		}
-		else if(ret==1){			//event and expired
-			AUDIT printk(KERN_INFO "%s:awake_cond after timeout",MODNAME);
-			//if msg will be "stealed" from another session 
-			//	-> no more time to wait
-			max_wait_time=0;
-			ret=-ETIME;
-		}
-		else { 						//event and not expired timer
-			AUDIT printk(KERN_INFO "%s:awake_cond %xwith residuajiffies=%lu",
-				MODNAME,pending_rd->awake_cond,ret);
-			max_wait_time=ret;	
-		}
-
-		if (pending_rd->awake_cond & FLUSH){	//called _flush()
-			AUDIT printk(KERN_INFO "%a: flush() called",MODNAME);
-			return -ECANCELED;	//unlink - free done in flush()
-		}
-		//msg ready
-		AUDIT printk(KERN_INFO "%s: DBG- MSGREADY=>%d==%d",
-			MODNAME,pending_rd->awake_cond,MSGREADY);	//TODO DEBUG
-		
-		mutex_lock(&minor->mtx);
-		if(msg=list_first_entry_or_null(&minor->avaible_messages,message,link)){
+	//sleep until either: msgready,flush,signal,timeout	
+	//TODO DISALLOW SIGNALS?
+	ret=wait_event_interruptible_timeout(minor->waitq_readers,
+			pending_rd->awake_cond,sess->timeoutRd);	
+	if(ret==0){					//timeout expired not event
+		AUDIT printk(KERN_INFO "%s:timeout waiting for msg",MODNAME);
+		ret=-ETIME;
+		goto unlink_pending_rd;
+	}
+	else if(ret==-ERESTARTSYS){	//signal
+		AUDIT printk(KERN_INFO "%s:sig interruption",MODNAME);
+		ret=-ENOMSG;
+		goto unlink_pending_rd;	//TODO POSSIBILE UNLINK GIA FATTO?
+	}
+	else if(ret==1){			//event and expired
+		AUDIT printk(KERN_INFO "%s:awake_cond after timeout",MODNAME);
+		//if msg will be "stealed" from another session 
+		//	-> no more time to wait
+		max_wait_time=0;
+		ret=-ETIME;
+	}
+	else { 						//event and not expired timer
+		AUDIT printk(KERN_INFO "%s:awake_cond %xwith residuajiffies=%d",
+			MODNAME,pending_rd->awake_cond,ret);
+		max_wait_time=ret;	
+	}
+	
+	if (pending_rd->awake_cond & FLUSH){	//called _flush()
+		AUDIT printk(KERN_INFO "%s: flush() called",MODNAME);
+		return -ECANCELED;	//unlink - free done in flush()
+	}
+	//msg ready
+	AUDIT printk(KERN_INFO "%s: DBG- MSGREADY=>%d==%d",
+		MODNAME,pending_rd->awake_cond,MSGREADY);	//TODO DEBUG
+	
+	mutex_lock(&minor->mtx);
+	if((msg=list_first_entry_or_null(&minor->avaible_messages,message,link))){
 			//msg avaible => unlink-free pending_rd
 			list_del(&pending_rd->link);
 			kfree(pending_rd);
 			goto msg_ready;
 		}
 		//avaible msg already taken from another sess -> back to sleep
-		mutex_unlock(&minor>-mtx);
+		mutex_unlock(&minor->mtx);
 		AUDIT printk(KERN_INFO "%s: avaible msg already taken",MODNAME);
 	}
 	//if exited without a goto -> timeout in earlier iteration but no msg
-	}
+	
 	unlink_pending_rd:
 		mutex_lock(&minor->mtx);
 		list_del(&pending_rd->link);
 		mutex_unlock(&minor->mtx);
 	free_pending_rd:
-		kfree(pending_rd)
+		kfree(pending_rd);
 		return ret;
 
 	msg_ready:
 		list_del(&msg->link);		//unlink the msg
 		mutex_unlock(&minor->mtx);
-		if(len > msg->size)	len=msg->size
-		elif(len < msg->size)	
-			AUDIT printk(KERN_INFO "%s: discarding %lu bytes 
-			    of the msg not requested ",MODNAME,msg->size - len);
-		if(left=copy_to_user(msg->data,buff,len))
-			AUDIT printk(KERN_INFO "%s: not copied %lu bytes 
+		if(len > msg->len)	len=msg->len;
+		else if (len < msg->len)	
+			AUDIT printk(KERN_INFO "%s: discarding %lu bytes \
+			    of the msg not requested ",MODNAME,msg->len - len);
+		if((left=copy_to_user(msg->data,buff,len)))
+			AUDIT printk(KERN_INFO "%s: not copied %d bytes \
 						of the request",MODNAME,left);
 		//TODO reinsert the msg with hope of another read fully sucesfull ?
 		
@@ -387,7 +394,7 @@ ssize_t _read(struct file *file, const char *buff, size_t len, loff_t *off) {
 		//free copied msg
 		kfree(msg->data);
 		kfree(msg);
-		return len-left;
+		return len-left;	//TODO UNCOPIABLE DISCARD ?
 }
 
 /*
@@ -398,6 +405,7 @@ ssize_t _read(struct file *file, const char *buff, size_t len, loff_t *off) {
 int	_flush (struct file* file, fl_owner_t id){
 	ddstate* minor=minors + get_minor(file);
 	session* sess;
+	delayed_read* defered_rd;
 	unsigned int c=0;	//audit counter
 	//revoke defered writes
 	list_for_each_entry(sess,&minor->sessions,link){
@@ -410,17 +418,16 @@ int	_flush (struct file* file, fl_owner_t id){
 		,MODNAME,c);
 
 	c=0;
-	mutex_lock(minor->mtx);	//serialize with other session's defered rd
+	mutex_lock(&minor->mtx);	//serialize with other session's defered rd
 	//unblock waiting readers
 	_notify_reader(minor,1,FLUSH);
 	//unlink - free pending rd
-	delayed_read* defered_rd;
 	list_for_each_entry(defered_rd,&minor->readers_delayed,link){
 		list_del(&defered_rd->link);
 		kfree(defered_rd);
 		AUDIT c++;
 	}
-	mutex_unlock(minor->mtx);
+	mutex_unlock(&minor->mtx);
 	AUDIT printk(KERN_INFO "%s:flush- unblocked %d readers",MODNAME,c);
 
 	return 0;
@@ -460,7 +467,7 @@ long _unlocked_ioctl(struct file* file, unsigned int cmd, unsigned long arg){
 			_cancel_pending_wr(sess);
 			break;
 		default:
-			AUDIT printk(KERN_ERR "%s: _unlocked_ioctl ->
+			AUDIT printk(KERN_ERR "%s: _unlocked_ioctl ->\
 				 invalid cmd %d given\n",MODNAME,cmd);
 			return -ENOTTY;
 			break;
@@ -485,7 +492,7 @@ static void _cancel_pending_wr(session* sess){
 		else	already_started_ops++;
 		defered_ops++;
 	}
-	AUDIT printk(KERN_INFO "%s: cancelled %d defered write, but impossible 
+	AUDIT printk(KERN_INFO "%s: cancelled %d defered write, but impossible \
 		to cancel %d because were already started",MODNAME,
 			defered_ops-already_started_ops,already_started_ops);
 }
