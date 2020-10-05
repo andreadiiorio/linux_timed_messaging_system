@@ -1,4 +1,4 @@
-ccflags-y := -O2 -Wno-unused-label
+ccflags-y := -O2 -Wall -Wno-unused-label 
 obj-m := timed_msg_sys.o 
 timed_msg_sys-y :=  ./src/utils.o  ./src/core.o ./src/timed_messaging_sys.o
 all:

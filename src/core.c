@@ -123,7 +123,7 @@ int _is_dev_file_full(ddstate* minor,unsigned long len_toadd){
  * after msg preparation, evaluate if the curr op.mode require to defer the write
  * if so,enqueue the operation to the custom workqueue as a work item
  * otherwise,safelly enqueue the new message to the avaible ones, 
- * notifing blocked readers for the new msg [if any for it ]
+ * notifing blocked readers for the new msg
  */
 ssize_t _write(struct file *file, const char *buff, size_t len, loff_t *off) {
 	session*	sess=file -> private_data;
@@ -155,7 +155,7 @@ ssize_t _write(struct file *file, const char *buff, size_t len, loff_t *off) {
 	msg->len=len;
 
 	//Check if ddriver IO sess operative mode require to defer the write
-	if (sess ->timeoutWr){	
+	if (sess->timeoutWr){	
 		//deleay the write
 		if (!(pending_wr = kmalloc(sizeof(delayed_write),GFP_KERNEL))){
 			printk(KERN_ERR "%s: error alloc delayed_write",MODNAME);
@@ -184,7 +184,7 @@ ssize_t _write(struct file *file, const char *buff, size_t len, loff_t *off) {
 		//queue work item in the custom  WRITERS_WORKQ
 		INIT_DELAYED_WORK(&pending_wr->delayed_work,_delayed_write);
 		queue_delayed_work(sess->workq_writers,&pending_wr->delayed_work,
-			sess->timeoutWr); //after op.mode WR delay->queue WR work
+						sess->timeoutWr); //after op.mode WR delay->queue WR work
 		return 0;	    //deferred write -> no bytes actually written
 	}
 	//add the message to the devFile instance
