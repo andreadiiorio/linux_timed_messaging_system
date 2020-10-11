@@ -6,6 +6,7 @@
 #ifndef _timed_msg_sys
 #define _timed_msg_sys
 
+#include "mod_ioctl.h"
 /// /sys export - helper function declare macros
 // var GET - PUT function definition macros
 #define SYSVAR_GET_NAME(var)	sys_get_##var
@@ -26,9 +27,5 @@
 #define MODNAME "TIMED_MESSAGING_SYS"
 #define DEVICE_NAME	"TIMED_MESSAGING_SYS"
 
-//ioctl cmd
-#define SET_SEND_TIMEOUT	0
-#define SET_RECV_TIMEOUT	1
-#define REVOKE_DELAYED_MESSAGES	2
 
 #endif

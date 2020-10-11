@@ -11,12 +11,17 @@
 #include <linux/kernel.h>
 #include <linux/version.h>
 #include <linux/mm.h>
+#include <linux/uaccess.h>	//needed by debian10 K4.19
+
 ///core struct
 typedef struct list_head list_link;
 //device driver state per minor num of device files avaible
 typedef struct _session{
+	///ioctl touched metadata 
 	unsigned long timeoutRd,timeoutWr;
-	struct mutex mtx;		   //serialize wr defering with cross session flush()
+	char limit_flush;	   //if non-zero flush will be limited to calling IOsess
+
+	struct mutex mtx;	   //serialize wr defering with cross session flush()
 	//delayed WR
 	struct workqueue_struct* workq_writers; //writers workQueue 
 	list_link writers_delayed;
@@ -55,6 +60,7 @@ typedef struct _delayed_wr{
 
 typedef struct _delayed_rd{
 	char awake_cond; //& with MSG_READY or FLUSH to check the actual awake cond
+	session* sess;	 //iosess where called rd 
 	list_link link;
 } delayed_read;
 
@@ -86,6 +92,7 @@ int 	_flush (struct file *, fl_owner_t id);
 ///Configuration MACROS
 #define WRITERS_WORKQ	"WRITERS_WORKQ"
 #define AUDIT			if(1)
+#define DEBUG			if(1)
 
 //Features Modify
 #define	TIMEOUT_DEF_MILLIS //if def -> timer expressed in millis in ioctl,otherwise in jiffies
