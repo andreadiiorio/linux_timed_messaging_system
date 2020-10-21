@@ -8,8 +8,8 @@
 #include <linux/init.h>
 #include <linux/fs.h>
 #include <linux/sched.h>	
-//#include <linux/pid.h>		/* For pid types */
-//#include <linux/tty.h>		/* For the tty declarations */
+//#include <linux/pid.h>			/* For pid types */
+//#include <linux/tty.h>			/* For the tty declarations */
 //#include <linux/version.h>		/* For LINUX_VERSION_CODE */
 #include <linux/signal_types.h>
 #include <linux/syscalls.h>
@@ -19,9 +19,11 @@
 #include "../include/utils.h"	
 
 ///Mod params
-unsigned int Major;
+int Major;
 unsigned long max_message_size, max_storage_size;
-module_param(Major,uint,0444);	//supported max msg size
+unsigned int num_minor=NUM_MINOR;
+module_param(Major,int,0444);				//supported max msg size
+module_param(num_minor,uint,0444);			//supported max devFiles
 module_param(max_message_size,ulong,0660);	//supported max msg size
 module_param(max_storage_size,ulong,0660);	//supported max cumulative msg size
 /*

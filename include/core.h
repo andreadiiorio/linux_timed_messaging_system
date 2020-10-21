@@ -56,7 +56,7 @@ typedef struct _delayed_wr{
 
 #define NULLEVENT   0
 #define MSGREADY	1<<0
-#define FLUSH		1<<1
+#define FLUSHED		1<<1
 
 typedef struct _delayed_rd{
 	char awake_cond; //& with MSG_READY or FLUSH to check the actual awake cond
@@ -87,7 +87,7 @@ int 	_flush (struct file *, fl_owner_t id);
 #define get_minor(filp)      MINOR(filp->f_dentry->d_inode->i_rdev)
 #endif
 //milisec -> jiffies 
-#define millis_2_jiffies(mill)  mill * (HZ / 1000)
+#define millis_2_jiffies(mill)  ( mill * HZ / 1000 )
 
 ///Configuration MACROS
 #define WRITERS_WORKQ	"WRITERS_WORKQ"
@@ -98,5 +98,11 @@ int 	_flush (struct file *, fl_owner_t id);
 #define	TIMEOUT_DEF_MILLIS //if def -> timer expressed in millis in ioctl,otherwise in jiffies
 //#define 	DELAYED_WRITER_HIGH_PRIO	//TODO TEST -> writer added to high prio work queue
 
+/*
+ * on shared IOsessions (open & fork) serialize critical sections (sess var RW)
+ * and print a warning 
+ */
+#define SHRD_IOSESS_WARN_AND_SERIALIZE 
 
+#define FLUSH_DEFER_WR_CONCURR_FAIL	//defered write fail if concurr with flush 
 #endif
