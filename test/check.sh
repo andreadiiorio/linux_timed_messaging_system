@@ -8,4 +8,4 @@ check_matching_msgs_py=$'from sys import stdin;
 l=stdin.readlines()\nfor x in range(0,len(l),2):\n
  if l[x]==l[x+1]:print(x,x+1,"OK")\n else:print(l[x],"!=",l[x+1])'
 
-tee /dev/stderr | grep -e "<<" -e ">>" | sort -n | python3 -c "$check_matching_msgs_py"
+tee /dev/stderr | grep -e "<<" -e ">>" | awk -F ":" '{printf $2"\n"}' | sort -n | python3 -c "$check_matching_msgs_py"

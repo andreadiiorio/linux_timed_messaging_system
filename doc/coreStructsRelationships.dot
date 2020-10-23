@@ -11,46 +11,48 @@ graph[ rankdir = "LR" ];	//left to right direction of graph as a GraphAttribute
 ddstate [ 
 	label = <<table border="0" cellspacing="0" cellborder="1" >
                 <tr><td port="ddstate" bgcolor="yellow">ddstate</td></tr>
-                <tr><td port="cumul_msg_size"> cumul_msg_size</td></tr>
-                <tr><td port="session"> sessions</td></tr>
-                <tr><td port="avaible_messages"> avaible_messages</td></tr>
-                <tr><td port="lock1">lock1</td></tr>
-		<tr><td port="readers_delayed">readers_delayed</td></tr>
-                <tr><td port="waitq_readers">waitq_readers*</td></tr>
+                <tr><td align="left" port="cumul_msg_size"> cumul_msg_size</td></tr>
+                <tr><td align="left" port="session"> sessions</td></tr>
+                <tr><td align="left" port="avaible_messages"> avaible_messages</td></tr>
+                <tr><td align="left" port="devF_mutex">devF_mutex</td></tr>
+		<tr><td align="left" port="readers_delayed">readers_delayed</td></tr>
+                <tr><td align="left" port="waitq_readers">waitq_readers*</td></tr>
                 </table>>
 ];
 msg[
 	label = "<data> data* | <len> len "
 	label = <<table border="0" cellspacing="0" cellborder="1" >
                 	<tr><td port="msg" bgcolor="yellow" >msg</td></tr>
-                	<tr><td port="data">data*</td></tr>
-			<tr><td port="len">len</td></tr>
+                	<tr><td align="left" port="data">data*</td></tr>
+			<tr><td align="left" port="len">len</td></tr>
                 </table>>
 ];
 
 session[
 	label = <<table border="0" cellspacing="0" cellborder="1" >
                 	<tr><td bgcolor="yellow" port="session">session</td></tr>
-                	<tr><td port="timeoutRd">timeoutRd </td></tr>
-                	<tr><td port="timeoutWd">timeoutWd </td></tr>
-			//<tr><td port="lock2">lock2</td></tr>
-			<tr><td port="workq_writers">workq_writers</td></tr>
-			<tr><td port="writers_delayed">writers_delayed</td></tr>
+                	<tr><td align="left" port="timeoutRd">timeoutRd </td></tr>
+                	<tr><td align="left" port="timeoutWd">timeoutWd </td></tr>
+                	<tr><td align="left" port="limit_flush">limit_flush</td></tr>
+			<tr><td align="left" port="sess_mutex">sess_mutex</td></tr>
+			<tr><td align="left" port="workq_writers">workq_writers</td></tr>
+			<tr><td align="left" port="writers_delayed">writers_delayed</td></tr>
                 </table>>
 ];
 delayed_write[
 	label = <<table border="0" cellspacing="0" cellborder="1" >
-                	<tr><td bgcolor="yellow" port="delayed_write">writers_delayed</td></tr>
-                	<tr><td port="minor">minor</td></tr>
-                	<tr><td port="session">session</td></tr>
-                	<tr><td port="msg">msg</td></tr>
-			<tr><td port="delayed_work">delayed_work</td></tr>
+                	<tr><td bgcolor="yellow" port="delayed_write">delayed_write</td></tr>
+                	<tr><td align="left" port="minor">minor</td></tr>
+                	<tr><td align="left" port="session">session</td></tr>
+                	<tr><td align="left" port="msg">msg</td></tr>
+			<tr><td align="left" port="delayed_work">delayed_work</td></tr>
                 </table>>
 ]
-delayed_readers[
+delayed_reader[
 	label = <<table border="0" cellspacing="0" cellborder="1" >
-                	<tr><td bgcolor="yellow" port="delayed_readers">delayed_readers</td></tr>
-                	<tr><td port="awake_cond">awake_cond</td></tr>
+                	<tr><td bgcolor="yellow" port="delayed_reader">delayed_reader</td></tr>
+                	<tr><td align="left" port="session">session</td></tr>
+                	<tr><td align="left" port="awake_cond">awake_cond</td></tr>
                 </table>>
 ]
 
@@ -58,15 +60,16 @@ delayed_readers[
 
 //links
 //minor
-ddstate:session-> session:session				[label=list]
-ddstate:avaible_messages-> msg:msg 				[label=list]
-ddstate:readers_delayed	-> delayed_readers:delayed_readers	[label=list]
+ddstate:session-> session:session							[taillabel=list]
+ddstate:avaible_messages-> msg:msg 							[label=list]
+ddstate:readers_delayed	-> delayed_reader:delayed_reader	[label=list]
 //session IO
-session:writers_delayed	-> delayed_write:delayed_write		[label=list]
-delayed_write:session -> session:session			[label="1!"]
+session:writers_delayed	-> delayed_write:delayed_write		[taillabel=list]
+delayed_write:session -> session:session					[taillabel="1!"]
+delayed_reader:session -> session:session					[taillabel="1!"]
 //delayed ops
-delayed_write:msg -> msg:msg					[label="1!"]
-delayed_write:minor -> ddstate:ddstate				[label="1!"]
+delayed_write:msg -> msg:msg								[taillabel="1!"]
+delayed_write:minor -> ddstate:ddstate						[headlabel="1!"]
 
 // next node is connected to node 2 & 1; boundary 
 //node1 -> { node2 node1 } [dir=both color="red:blue"]	//edge to multiple nodes with bi colored edge

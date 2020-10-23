@@ -22,7 +22,6 @@
 
 ///Configuration
 #define NUM_MINOR	10	//max concurrent instances supported TODO
-#define AUDIT		if(1)
 
 #define MODNAME "TIMED_MESSAGING_SYS"
 #define DEVICE_NAME	"TIMED_MESSAGING_SYS"

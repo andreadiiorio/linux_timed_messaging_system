@@ -1,15 +1,23 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -Wno-sign-compare -ggdb #-O2
+CFLAGS=-Wall -Wextra -Wno-sign-compare -ggdb -O2 #-DQUIET
 
-all: dbg ddriver_test simple_test ioctl
+objs = ddriver_test.o dbg.o ioctl.o simple_test.o time_test_gettimeoftheday.o time_test_tsc.o 
+tsc_khz=$(shell sh tsc_khz_get.sh ) #NEED RUN AS ROOT!!!
 
-ddriver_test: ddriver_test.c
-	$(CC) $(CFLAGS) -pthread $< -o $@.o
-dbg: dbg.c
-	$(CC) $(CFLAGS) $< -o $@.o
-ioctl: dbg.c
-	$(CC) $(CFLAGS) -DTEST_ALL_IOCTL $< -o $@.o
-simple_test: simple_test.c
-	$(CC) $(CFLAGS) $< -o $@.o
+all: $(objs)
+.PHONY: all
+
+ddriver_test.o: ddriver_test.c
+	$(CC) $(CFLAGS) -pthread $< -o $@
+dbg.o: dbg.c
+	$(CC) $(CFLAGS) $< -o $@
+ioctl.o: dbg.c
+	$(CC) $(CFLAGS) -DTEST_ALL_IOCTL $< -o $@
+simple_test.o: simple_test.c
+	$(CC) $(CFLAGS) $< -o $@
+time_test_gettimeoftheday.o: time_test.c
+	$(CC) $(CFLAGS) -pthread -DGETTIMEOFDAY -DTSC_KHZ=$(tsc_khz)  $< -o $@
+time_test_tsc.o: time_test.c
+	$(CC) $(CFLAGS) -pthread -DTSC_KHZ=$(tsc_khz) $< -o $@
 clean:
 	rm -i *.o 

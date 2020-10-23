@@ -1,6 +1,12 @@
 /*
  *  TIMED MESSAGING SYSTEM
  *  Andrea Di Iorio	277550
+ *  write and read a series of random messages with different thread among a group of
+ *  opened device files.
+ *  threads may a have a flag that inidicate if call an ioctl during their work
+ *  after joining threads, will be printed readed messages
+ *  pipe output to check.sh to verify that every written message to a device
+ *  file has been readed from someone in any devFile
  */
 
 #include <stdlib.h>
@@ -72,8 +78,6 @@ static void _getDevFilePath(char* dest,char* prefix,size_t prefixLen,long suffix
 static int _initMessages(message**,unsigned int,unsigned int,unsigned int);
 static void _freeMsgs(message* ms,unsigned int num);
 static void* thread_work(void* arg);
-int _msg_rd(int fp,char* dst,unsigned int num);
-int _msg_wr(int fp,char* src,unsigned int num);
 
 /*
  *	open associated device files and read-write msgs cyclically on each of them
@@ -165,7 +169,9 @@ static void* thread_work(void* arg){
 			m=(m+1)%minorsNum;
 			fp=minorsFp[m];
 			if(rndOP){		//READ
-				if(!(msgDst->data=malloc(MAX_MSG_LEN))){
+				//don't realloc messages if sometime before already did it
+				if(!(msgDst->data)) msgDst->data=malloc(MAX_MSG_LEN);
+				if(!(msgDst->data)){ 
 						fprintf(stderr,"msg to read data malloc failed\n");
 						ret=EXIT_FAILURE;
 						goto end;
@@ -269,7 +275,7 @@ int main(int argc,char** argv){
 	//parse decimal strings
 	char* ptr;
 	minorsNum=strtoul(argv[2],&ptr,10);
-	if (ptr==argv[2] || minorsNum== LONG_MIN || minorsNum == LONG_MAX){
+	if (ptr==argv[2] ||  minorsNum == ULONG_MAX){
 			perror("strtol errd");
 			exit(EXIT_FAILURE);
 	}
@@ -278,20 +284,20 @@ int main(int argc,char** argv){
 			exit(EXIT_FAILURE);
 	}
 	unsigned long threadsPerMinorNum=strtoul(argv[3],&ptr,10);
-	if (ptr==argv[3] || threadsPerMinorNum == LONG_MIN || threadsPerMinorNum == LONG_MAX){
-			perror("strtol may errd");
+	if (ptr==argv[3]  || threadsPerMinorNum == ULONG_MAX){
+			perror("strtoul may errd");
 			exit(EXIT_FAILURE);
 	}
 	if(argc==5){	//overwrite ALL_MSGS_NUM
 		ALL_MSGS_NUM=strtoul(argv[4],&ptr,10);
-		if (ptr==argv[3] || MAX_MSG_LEN== LONG_MIN || MAX_MSG_LEN== LONG_MAX){
-				perror("strtol may errd");
+		if (ptr==argv[3] || MAX_MSG_LEN== ULONG_MAX){
+				perror("strtoul may errd");
 				exit(EXIT_FAILURE);
 		}
 	}
 	if(argc==6){	//overwrite MAX_MSG_LEN
 		MAX_MSG_LEN=strtoul(argv[5],&ptr,10);
-		if (ptr==argv[5] || MAX_MSG_LEN== LONG_MIN || MAX_MSG_LEN== LONG_MAX){
+		if (ptr==argv[5]  || MAX_MSG_LEN== ULONG_MAX){
 				perror("strtol may errd");
 				exit(EXIT_FAILURE);
 		}
@@ -310,7 +316,7 @@ int main(int argc,char** argv){
 	thread_arg* t_arg; //point to current thread metadata to initiate
 	
 	if((urndFp=open(DRNG_DEVFILE,O_RDONLY))<0){
-			perror("open");
+			perror("open DRNG_DEVFILE");
 			ret=EXIT_FAILURE;
 			goto end;
 	}
@@ -386,7 +392,7 @@ int main(int argc,char** argv){
 			}
 
 			//free thread's readed messages
-			if(!t_arg->readedMsgs)	continue; //err before msg to get calloc
+			if(!(t_arg->readedMsgs))	continue; //err before msg to get calloc
 			for(x=0,msg=t_arg->readedMsgs;x<t_arg->msgN;msg=t_arg->readedMsgs+(++x)){
 				if(msg->data)	free(msg->data);	
 			}
@@ -473,7 +479,7 @@ static int _initMessages(message** dst,
 				goto err;
 		}
 		msg->data[HEADER_LEN]='\t';
-		DEBUG printf("<<msg\t%s\t%uB\n",msg->data,msg->len);
+		DEBUG printf("<<msg:\t%s\t%uB\n",msg->data,msg->len);
 	}
 	return 0;
 
@@ -504,7 +510,7 @@ static void _print_msgs(message* msg,unsigned int num){
 				//break;
 				continue;
 		}
-		if( printf(">>msg\t%s\t%uB\n",m->data,m->len) < MIN_MSG_LEN )
+		if( printf(">>msg:\t%s\t%uB\n",m->data,m->len) < MIN_MSG_LEN )
 				fprintf(stderr,"msg:%u-short msg\n",x);	//TODO DEBUG
 	}
 }

@@ -1,6 +1,6 @@
 /*
- * Andrea Di Iorio
- *
+ * Andrea Di Iorio - 277550
+ * write a series of messages, then read them from the same device file
  */
 
 #include <stdlib.h>

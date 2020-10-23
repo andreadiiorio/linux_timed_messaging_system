@@ -17,8 +17,8 @@ int main(){
 		int ret=0,fp;
 		if((fp=open(DEVF_PATH,O_RDWR))<0)	{perror("open");ret=fp;goto end;}
 
-		unsigned long timeout=96;
 #ifdef TEST_ALL_IOCTL
+		unsigned long timeout=96;
 		if((ret=ioctl(fp,SET_SEND_TIMEOUT,timeout))<0)	perror("ioctl SND"); 
 		if((ret=ioctl(fp,SET_RECV_TIMEOUT,timeout))<0)	perror("ioctl RCV"); 
 		if((ret=ioctl(fp,REVOKE_DELAYED_MESSAGES))<0)	perror("ioctl RVK"); 

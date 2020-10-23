@@ -60,7 +60,7 @@ typedef struct _delayed_wr{
 
 typedef struct _delayed_rd{
 	char awake_cond; //& with MSG_READY or FLUSH to check the actual awake cond
-	session* sess;	 //iosess where called rd 
+	session* sess;	 //calling iosess
 	list_link link;
 } delayed_read;
 
@@ -91,18 +91,21 @@ int 	_flush (struct file *, fl_owner_t id);
 
 ///Configuration MACROS
 #define WRITERS_WORKQ	"WRITERS_WORKQ"
-#define AUDIT			if(1)
-#define DEBUG			if(1)
-
+#ifndef QUIET //add it to the makefile to disable printks
+	#define AUDIT			if(1)
+	#define DEBUG			if(1)
+#else
+	#define AUDIT			if(0)
+	#define DEBUG			if(0)
+#endif
 //Features Modify
 #define	TIMEOUT_DEF_MILLIS //if def -> timer expressed in millis in ioctl,otherwise in jiffies
-//#define 	DELAYED_WRITER_HIGH_PRIO	//TODO TEST -> writer added to high prio work queue
+#define	DELAYED_WRITER_HIGH_PRIO	//TODO TEST -> writer added to high prio work queue
 
 /*
- * on shared IOsessions (open & fork) serialize critical sections (sess var RW)
- * and print a warning 
+ * on shared IOsessions (open then clone ) 
+ * serialize critical sections (sess var access) and print a warning 
  */
 #define SHRD_IOSESS_WARN_AND_SERIALIZE 
 
-#define FLUSH_DEFER_WR_CONCURR_FAIL	//defered write fail if concurr with flush 
 #endif
