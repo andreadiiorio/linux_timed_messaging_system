@@ -1,6 +1,5 @@
-//Andysnake96
-// dot <name>.dot -Tsvg | display
-//label=<<table border="0" cellborder="1" cellspacing="0">
+//Andread Di Iorio
+//onthefly build with: dot <name>.dot -Tsvg | display 	(Imagemagick + dot required)
 
 digraph g {
 
