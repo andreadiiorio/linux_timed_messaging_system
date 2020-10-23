@@ -165,6 +165,11 @@ ssize_t _write(struct file *file, const char *buff, size_t len, loff_t *off) {
 	delayed_write* pending_wr=NULL;
 	int		ret,err;
 	
+	if(len > max_message_size){
+		printk(KERN_ERR "%s: write request for a message of %lu bytes in excess",
+			MODNAME,len-max_message_size);
+		return -ENOMEM;
+	}
 	DEBUG printk(KERN_INFO "%s: write(&curr=%px) on minor %d of %ld bytes\n",
 		MODNAME,current,get_minor(file),len);
 	

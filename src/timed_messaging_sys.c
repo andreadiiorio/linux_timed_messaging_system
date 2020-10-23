@@ -21,9 +21,7 @@
 ///Mod params
 int Major;
 unsigned long max_message_size, max_storage_size;
-unsigned int num_minor=NUM_MINOR;
 module_param(Major,int,0444);				//supported max msg size
-module_param(num_minor,uint,0444);			//supported max devFiles
 module_param(max_message_size,ulong,0660);	//supported max msg size
 module_param(max_storage_size,ulong,0660);	//supported max cumulative msg size
 /*
