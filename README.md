@@ -55,12 +55,16 @@ The core structures used in this device driver are illustrated below with a sche
 ![coreStructsRelationships](doc/coreStructsRelationships.svg)
 
 __ddstate__ rappresent an instance of the device file with a given minor number.
+
 It contains lists for all the opened IOsessions, all stored messages, and all pending reads waiting on a wait_queue.
+
 Operations that modify these informations concurrently are serialized via a mutex
 
 __session__ rappresent an opened IOsession linked to the relative struct file as *file->private_data*.
+
 It contains the timeouts discussed above, a list of all delayed writes on a workqueue
 and a flag to limit later calls to flush() (so a close on an IOsession may don't bother other IOsessions).
+
 Concurrent operation on a session may be for example a flush() called from another session and the current session that is adding/removing a defered write 
 or exists shared IOsessions that may read-write session's variables (see macro SHRD_IOSESS_WARN_AND_SERIALIZE).
 These concurrent operation are serialized via a session mutex
@@ -93,6 +97,7 @@ Messages to write are generated randomly,printed and assigned in subsets to each
 Each thread is assigned to a number of messages that will read and write on the device file.
 
 The ammount of messages to exchange and the actual operation (read or write) is chosen randomly in each iteration.
+Also some of the threads will be marked with a flag to call ioctl to set a random timeout before to start to read-write on the dev.files.
 
 At the end, messages readed by the threads are printed.
 
@@ -102,9 +107,9 @@ Piping the output of the test to the bash script check.sh will check if each gen
 #### time_test
 bind 2 threads to respectivelly write and read 1 message at the time on one device file.
 
-Will be mesured the time elapsed after each write and each read, using random timeouts.
+Will be mesured the elapsed times after each write and each read, using random timeouts.
 
-The thread start each iteration together via a pthread_barrier
+The threads start each iteration together via a pthread_barrier
 
 Because the reader's timeout is set as twice of the writer's one. the time mesured by the reader rappresent the ammount of time it has waited on the wait queue until the message post from the other thread has propagated. So this value will reflect the delay experienced by writer.
 
@@ -137,6 +142,6 @@ the time elasped after each operation is mesured with either the syscall *gettim
 
 The macro GETTIME rappresent a common interface between these 2 functions, and can be configured to map to *gettimeofday* if the macro GETTIMEOFDAY is defined, otherwise will map to *__rdtscp*.
 
-To convert the  processor's time-stamp counter in time units it's used the linux symbol tsc_khz.
+To convert the  processor's time-stamp counter in time units it's used the linux symbol *tsc_khz*
 
 This value is defined from the Makefile to this test calling the bash script tsc_khz_get.sh that will get it using /proc/kallsyms

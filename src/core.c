@@ -135,7 +135,6 @@ void free_ddriver_state(void){
 		ddstate* dMinor=minors + i;	
 		DEBUG printk(KERN_INFO "%s: free minor %d struct\n",MODNAME,i);
 		mutex_lock(&dMinor->mtx);
-		//TODO not unmountable module if \e a session?
 		list_for_each_entry_safe(sess,tmp,&dMinor->sessions,link){
 			printk(KERN_INFO "%s: unmounting module with a session alive at %px\n",
 					  MODNAME,sess);
@@ -155,14 +154,15 @@ int _is_dev_file_full(ddstate* minor,unsigned long len_toadd){
 
 /*
  * @file:	calling IO sess
- * @buff:	msg contento to write
+ * @buff:	msg content to write
  * @len:	msg len
  * @off:	unsed
  *
  * Returns:
  * 	written size in byte, otherwise
- * 	%-ENOMEM	(some control struct alloc failed)
- * 	%-ENOSPC	(deviceFile full)
+ * 	%-ENOMEM	some control struct alloc failed or len > max_message_size
+ * 	%-ENOSPC	deviceFile full
+ 
  * after msg preparation, evaluate if the curr op.mode require to defer the write
  * if so,enqueue the operation to the custom workqueue as a work item
  * otherwise,safelly enqueue the new message to the avaible ones, 
@@ -270,7 +270,7 @@ static void _list_msgs(ddstate* minor){
 	if(!i)	printk(KERN_INFO "%s: minor %lu NO MSGS\n",MODNAME,m);
 }
 /*
- * @minor: ddstate relative to an opened session to a specific devFile
+ * @minor: ddstate relative to the target devFile for the msg post
  * @msg:   message to add
  * @event: event to propagate to blocked readers waiting [if any]
  * 		   if = %NULLEVENT, readers not notified
@@ -368,21 +368,21 @@ static void _delayed_write (struct work_struct *work){
 
 /*
  * @file:	calling IO sess
- * @buff:	msg contento to write
- * @len:	msg len
+ * @buff:	msg content to fill with an avaible msg (if any)
+ * @len:	bytes to get from an avaible msg
  * @off:	unsed
  *
  * Returs:
  * 	the number of bytes readed, 
- *	if requestest less bytes then readed message size,
- *		the remaining is discarded along with the message.
+ *	if requested less bytes then readed message size,
+ *		the remaining are discarded 
  *	%-ENOMEM -> some control struct alloc failed
  *	%-ENOMSG -> no message avaible 
  *	%-ETIME ->  no message avaible after the max ammount of wait time
  *	%-ECANCELED -> flush called while waiting for a new message
  *
  * check if there is an avaible message, if so dequeue it and copy to @buff
- * otherwise, if the session op.mode allow to wait, go to sleep for the setted time
+ * otherwise, if the session op.mode allow to wait, go to sleep for the setted timeout
  * waiting for a new msg.
  */
 ssize_t _read(struct file *file, char __user *buff, size_t len, loff_t *off) {
@@ -403,7 +403,6 @@ ssize_t _read(struct file *file, char __user *buff, size_t len, loff_t *off) {
 	///NO MSG AVAIBLE -> check session op.mode allow to wait
 #ifdef SHRD_IOSESS_WARN_AND_SERIALIZE
 	if(!mutex_trylock(&sess->mtx)){ 
-		//TODO FILTER FLUSH UNLINK PENDING WRs
 		AUDIT printk(KERN_INFO "%s: SESSION IN CONCURRENT USE!!\n",MODNAME);
 		mutex_lock(&sess->mtx);				
 	}
@@ -428,7 +427,6 @@ ssize_t _read(struct file *file, char __user *buff, size_t len, loff_t *off) {
 	//until am I allowed to wait a new msg
 	while(max_wait_time>0){
 		//sleep until either: msgready,flush,signal,timeout	
-		//TODO DISALLOW SIGNALS?
 		DEBUG printk(KERN_INFO "%s: read(&curr=%px) minor %d adding on waitQueue\
 			until either: msgready,flush,signal,timeout\n",
 			MODNAME,current,get_minor(file));
@@ -442,7 +440,7 @@ ssize_t _read(struct file *file, char __user *buff, size_t len, loff_t *off) {
 		else if(ret==-ERESTARTSYS){	//signal
 			AUDIT printk(KERN_INFO "%s: sig interruption",MODNAME);
 			ret=-ENOMSG;
-			goto unlink_pending_rd;	//TODO POSSIBILE UNLINK GIA FATTO?
+			goto unlink_pending_rd;
 		}
 		else if(ret==1){			//event and expired
 			AUDIT printk(KERN_INFO "%s: awake_cond after timeout",MODNAME);
@@ -462,9 +460,6 @@ ssize_t _read(struct file *file, char __user *buff, size_t len, loff_t *off) {
 			return -ECANCELED;	//unlink - free in flush()
 		}
 		//msg ready
-		DEBUG printk(KERN_INFO "%s: MSGREADY, awake_cond=>%x=?=%x",
-			MODNAME,pending_rd->awake_cond,MSGREADY);	//TODO DEBUG
-		
 		mutex_lock(&minor->mtx);
 		if((msg=list_first_entry_or_null(&minor->avaible_messages,message,link))){
 				//msg avaible => unlink-free pending_rd
@@ -503,13 +498,12 @@ ssize_t _read(struct file *file, char __user *buff, size_t len, loff_t *off) {
 		if((left=copy_to_user(buff,msg->data,len)))
 			AUDIT printk(KERN_INFO "%s: copy_to_user not copied %d bytes",
 				MODNAME,left);
-		//TODO reinsert the msg with hope of another read fully sucesfull ?
 		
 
 		//free copied msg
 		kfree(msg->data);
 		kfree(msg);
-		return len-left;	//TODO UNCOPIABLE DISCARD ?
+		return len-left;
 }
 
 /*
