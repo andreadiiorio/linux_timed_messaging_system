@@ -1,14 +1,29 @@
 /*
- * Andrea Di Iorio - 277550
  *
- * bind 2 threads to respectivelly write and read from one device file 
- * using delays and checking time to exchange each message using barriers
- * flexible time gathering with GETTIME(arg,out) macro: out=get_time_with(&arg)
+ *  Copyright 2020 Andrea Di Iorio
+ *	This file is part of linux_timed_messaging_system.
+
+ *   linux_timed_messaging_system is free software: you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation, either version 3 of the License, or
+ *   (at your option) any later version.
+
+ *   linux_timed_messaging_system is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+
+ *   You should have received a copy of the GNU General Public License
+ *   along with linux_timed_messaging_system.  If not, see <https://www.gnu.org/licenses/>.
  * 
- * define GETTIMEOFDAY in compilation to expand implement GETTIME with gettimeofday 
- * otherwise will be implemented with __rdtscp, scaling the tsc counter with ksym tsc_khz
- * in that case, the reader and the writer will be bounded to specific different cores
- * to avoid use different TSC HW during a time mesurement
+ * 	 bind 2 threads to respectivelly write and read from one device file 
+ * 	 using delays and checking time to exchange each message using barriers
+ * 	 flexible time gathering with GETTIME(arg,out) macro: out=get_time_with(&arg)
+ * 	 
+ * 	 define GETTIMEOFDAY in compilation to expand implement GETTIME with gettimeofday 
+ * 	 otherwise will be implemented with __rdtscp, scaling the tsc counter with ksym tsc_khz
+ * 	 in that case, the reader and the writer will be bounded to specific different cores
+ * 	 to avoid use different TSC HW during a time mesurement
  *
  */
 

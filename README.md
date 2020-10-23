@@ -1,45 +1,56 @@
 # Linux Timed Messaging System
 
-Linux Device Driver for exchanging messages among threads, with the possibility to get-post data with a definible timeout through an ioctl interface.
+This is a Linux Device Driver for exchanging messages among threads, with the possibility to get-post data with a definible timeout through an ioctl interface.
 Messages posted to a device file are indipendent data units and are delivered to the readers in FIFO order.
 
-Developped as project of the course Advanced Operating Systems in the University of Rome Tor Vergata.
 Tested on Debian 10.2, Kernel Version 4.19.132-1 as a virtual machine into QEMU/KVM
+Developped as project of the course Advanced Operating Systems in the University of Rome Tor Vergata.
+
 
 ## Features
 
-The Device Driver support a compile-time configurable number of device file (MACRO *NUM_MINOR*)  associated to different minor numbers, 
+The Device Driver support a compile-time configurable number of device file (MACRO *NUM_MINOR*)  associated to different minor numbers. 
 Each instance support concurrent IO sessions, which operative mode may be configured through ioctl commands listed below.
 
 ### ioctl interface
 -SET_SEND_TIMEOUT:			the current IO session stores messages after a timeout defined in the ioctl arg but a write() operation immediately return.
+
 -SET_RECV_TIMEOUT:			the current I/O session allows a thread calling a read() operation to resume its execution after a timeout even if no message is currently present.
+
 -REVOKE_DELAYED_MESSAGES:	undo message-post operations, that have occurred in the calling session, 
 							of messages that have not yet been stored into the device file because their not yet expired send-timeout 
+
 -LIMIT_FLUSH_SESS_TOGGLE:	toggle a flag of the calling session (*limit_flush* default set to false). If true, effects of later calls to flush() will be limited to this session
+
 -FLUSH:						call flush(). Unblock all threads waiting for messages and revoke all the delayed messages not yet delivered
 							if session.limit_flush is non zero:
 								 readers unblocked will be ones of the current session (any if shared IOsession)
 								 delayed messages revoked will be the ones generated from the current session.
+
 -DEL_STORED_MESSAGES:		delete messages stored in the device file related to the calling session.
 							If the given arg is non zero, all messages stored in all dev. file will be removed
 
 ### Module's MACROs:
 -*TIMEOUT_DEF_MILLIS*:	the arg of *ioctl* from the timeoutset commands is interpretated as a value in milliseconds, so it's converted to jiffies via the *HZ* macro.
 						Otherwhise arg is interpretated as the timeout in jiffies directly
+
 -*SHRD_IOSESS_WARN_AND_SERIALIZE*:	in case of race conditions caused by shared IOsessions (e.g. open(), then some flavor of clone() )
 									serialize threads (via a session's mutex) and print an information
+
 -*QUIET*:						   disable aux macro for logging information on the kernel ring buffer
 
 ### /sys exported parameters
 The module expose on the /sys filesystem the following parameters:
+
 -Major:				the assigned major number from the OS to the dev.driver via *__register_chrdev*  (readonly)
+
 -max_message_size:	maximum size (bytes) currently allowed for posting messages to the device file	 (read-write)
+
 -max_storage_size:  maximum number of bytes globally allowed for keeping messages in the device file (read-write)
 
 ## Internals
 
-The core structures used in this device driver are illustrated in a scheme builded in the dot language below.
+The core structures used in this device driver are illustrated in a scheme builded with the dot language below.
 ![coreStructsRelationships](doc/coreStructsRelationships.svg)
 
 __ddstate__ rappresent an instance of the device file with a given minor number.
@@ -101,6 +112,7 @@ selected timeout: 96 millis
 It's possible to notice as the mesured delays  are quite near to the timeout of the writer.
 ##### time mesuring 
 the time elasped after each operation is mesured with either the syscall *gettimeofday* or via the GCC's X86 intrinsics *__rdtscp*.
+
 The macro GETTIME rappresent a common interface between these 2 functions, and can be configured to map to *gettimeofday* if the macro GETTIMEOFDAY is defined, otherwise will map to *__rdtscp*.
 
 To convert the  processor's time-stamp counter in time units it's used the linux symbol tsc_khz.
